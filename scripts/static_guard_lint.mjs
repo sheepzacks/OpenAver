@@ -157,6 +157,38 @@ const RULES = [
     note: '[TestMaskToggleGuard] confirmMask await 後 session re-check（不誤存已切走的別片；99a-T3 承接原 closeMask 語意）',
   },
   { file: 'web/static/js/pages/showcase/state-lightbox.js', kind: 'forbidden-string', pattern: '_maskVideoPath', note: '[TestMaskToggleGuard] 舊 path-based guard 變數不得復活（已由 _maskSession 取代，Codex P2）' },
+
+  // ---- 2026-09-15：入口可見性契約（「封面裁切預覽」兜底）----------------------------------
+  // 病灶（實測 FPRE-032）：封面檔 0 位元組 ⇒ .lb-full 的 @load 永不 fire ⇒ _lbFullLoaded 恆 false
+  // ⇒ 舊閘 `(_lbFullLoaded || !cover_full_url)` 對該條永久為假：使用者在燈箱裡看不到入口，
+  // 連唯一的「🖼 換封面」自救路都拿不到（該鈕是 replace-cover / rotate 的唯一觸發點）。
+  // 契約：**影片燈箱開著 ⇒ 入口必須看得見**，閘不得綁任何圖片載入狀態。
+  // 第一條用「class + 縮排 + 閘字面」整段精確鎖（片段字面會被註解/別處同名條件命中而假綠）；
+  // 任何人把 _lbFullLoaded／cover_full_url／_posterModeActive 塞回閘裡，此字面即不再存在 → RED（fail-closed）。
+  // 縮排為 40 空格，改動時勿「順手格式化」該行。
+  {
+    file: 'web/templates/showcase.html', kind: 'required-string',
+    pattern: 'class="lb-mask-btn"\n                                        x-show="!!currentLightboxVideo?.path"',
+    note: '[TestMaskToggleGuard] 2026-09-15 入口可見性契約：影片側 .lb-mask-btn 的閘只能是「影片燈箱開著」（精確字面鎖，防 _lbFullLoaded／cover_full_url／_posterModeActive 回歸）',
+  },
+  {
+    file: 'web/templates/showcase.html', kind: 'forbidden-string',
+    pattern: 'x-show="!!currentLightboxVideo?.path && (_lbFullLoaded',
+    scope: { anchor: /<div class="lb-header">/, window: 6000 },
+    note: '[TestMaskToggleGuard] 2026-09-15 同契約反向鎖：影片 metadata .lb-header 視窗內不得出現「閘 + _lbFullLoaded」組合字面（女優側 .actress-lb-header 在錨點之前，不在本視窗內）',
+  },
+  {
+    file: 'web/static/js/pages/showcase/state-lightbox.js', kind: 'required-string',
+    pattern: ['this.currentLightboxVideo?.has_cover !== false', '!this._lbFullBroken'],
+    scope: { anchor: /async openMask\s*\(\s*\)\s*\{/, braceBalanced: true },
+    note: '[TestMaskToggleGuard] 2026-09-15：openMask 的「圖未就緒」守衛必須排除已知壞封面（has_cover === false）並放行待上傳態，否則入口可見但點了靜默無反應',
+  },
+  {
+    file: 'web/static/js/pages/showcase/state-lightbox.js', kind: 'required-string',
+    pattern: ['|| this.currentLightboxVideo?.has_cover === false', '|| this._lbFullBroken'],
+    scope: { anchor: /const isNoCoverVideo = /, window: 400 },
+    note: '[TestMaskToggleGuard] 2026-09-15：isNoCoverVideo 必須把「已知壞封面」與「無封面」同一處理（跳過必 400 的 detect 與 naturalWidth=0 的幾何），與 openMask 守衛同判準',
+  },
   // 98b-T6：亮窗幾何改 reactive data（imperative $nextTick 算），禁量測-in-binding 復活。
   // 100b-T1（CD-4/CD-5）：遮罩 DOM 抽出 web/templates/_macros/focal_mask.html partial，
   // 下列 6 條（原標 #2/#3/#4/#5/#6/#9）file: 改指向 partial——守護對象（遮罩互動綁定 /
@@ -358,7 +390,7 @@ const RULES = [
   // 唯一性已用 grep 確認），window 只需蓋過該分支內的 ✓/✗ 兩處、且在下一分支的同 pattern
   // 之前收尾，兩個分支才能被「各自」的 count:2 下限獨立守住。
   { file: 'web/templates/showcase.html', kind: 'required-string', pattern: 'x-show="_maskVisible && !_maskDetecting"', count: 2, scope: { anchor: /<template x-if="currentLightboxActress">/, window: 8800 }, note: '[TestMaskToggleGuard] 99a-T5→100b-T1→100b P2-1 fix：女優分支 ✓ + ✗ 兩處收窄 gating（detect 完成才可提交），scope 錨到女優 <template x-if> 分支，count=2 獨立鎖住兩處都改到（window 含 100b P2-2 fix 新增的 photo-frame wrapper 註解，與下一條影片 scope 的 anchor 相距 15069 字元，仍安全不重疊）' },
-  { file: 'web/templates/showcase.html', kind: 'required-string', pattern: 'x-show="_maskVisible && !_maskDetecting"', count: 2, scope: { anchor: /<template x-if="currentLightboxVideo && !currentLightboxActress">/, window: 9000 }, note: '[TestMaskToggleGuard] 99a-T5→100b-T1→100b P2-1 fix：影片分支 ✓ + ✗ 兩處收窄 gating（detect 完成才可提交），scope 錨到影片 <template x-if> 分支，count=2 獨立鎖住兩處都改到' },
+  { file: 'web/templates/showcase.html', kind: 'required-string', pattern: 'x-show="_maskVisible && !_maskDetecting"', count: 2, scope: { anchor: /<template x-if="currentLightboxVideo && !currentLightboxActress">/, window: 11500 }, note: '[TestMaskToggleGuard] 99a-T5→100b-T1→100b P2-1 fix：影片分支 ✓ + ✗ 兩處收窄 gating（detect 完成才可提交），scope 錨到影片 <template x-if> 分支，count=2 獨立鎖住兩處都改到' },
 
   // 星空等待動畫函式定義存在（ghost-fly.js）+ callsite（state-lightbox.js openMask，唯一啟動點）。
   { file: 'web/static/js/shared/ghost-fly.js', kind: 'required-string', pattern: 'function playFocalDetectWait', note: '[TestMaskToggleGuard] 99a-T5：ghost-fly.js 定義星空等待迴圈動畫（start）' },
@@ -4093,7 +4125,7 @@ const RULES = [
       'class="cover-badges-part"',
       'formatPartLabel(currentLightboxVideo.part_tokens)',
     ],
-    scope: { anchor: /<div class="lightbox-cover" :class="\{'has-cover': !!currentLightboxVideo\?\.cover_url\}">/, window: 4000 },
+    scope: { anchor: /<div class="lightbox-cover"[^>]*:class="\{'has-cover': !!currentLightboxVideo\?\.cover_url\}">/, window: 4000 },
     note: '[122-T3] AC-7/AC-17 燈箱：封面必須以 <template x-if> 掛 .cover-badges-part（含 !_maskVisible），消費 formatPartLabel(currentLightboxVideo.part_tokens)',
   },
 
