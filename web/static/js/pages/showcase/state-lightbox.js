@@ -91,6 +91,10 @@ export function stateLightbox() {
         _pickInFlight: {},
 
         _lbFullLoaded: false,           // 71-T6 blur-up：原圖（cover_full_url）@load 後翻 true → overlay opacity 淡入
+        // 2026-09-15 入口兜底：原圖（.lb-full）自身 @error 的訊號。縮圖層的 handleCoverError 只覆蓋
+        // cover_url（thumbnail_cache_enabled=true 時與原圖是不同 URL、不同失敗面）——「縮圖命中快取、
+        // 原圖 0 位元組/404」時 has_cover 仍為 true，只有本旗標能判定原圖不可用。
+        _lbFullBroken: false,
         _lbFullErrorPill: false,        // 120a-T1：.lb-full @error 通過判定後顯示提示 pill
 
         // 100b-T2a（§B-2b）：女優封面 img 快取命中/@load 就緒旗標，平行 _lbFullLoaded（video）。
@@ -232,6 +236,7 @@ export function stateLightbox() {
         // 跳過 @load 等待；否則等 @load 觸發翻 true。
         _refreshLbFullBlurUp() {
             this._lbFullLoaded = false;
+            this._lbFullBroken = false;   // 兜底：換片/重試即清，讓下一次載入能重新判定
             this._lbFullErrorPill = false;
             var self = this;
             this.$nextTick(function () {
@@ -253,6 +258,9 @@ export function stateLightbox() {
             const actualSrc = (target && target.getAttribute('src')) || '';
             if (isStaleLbFullError(actualSrc, this.currentLightboxVideo.cover_full_url)) return;
             this._lbFullErrorPill = true;
+            // 2026-09-15 入口兜底：同一判定（已排除 stale/非本元素）成立時，同步標記「原圖已知壞檔」。
+            // 不寫 has_cover（AC-A5）：縮圖層與原圖層是不同失敗面，只有本旗標能判定原圖不可用。
+            this._lbFullBroken = true;
         },
 
         // 100b-T2a（§B-2b）：女優版 _refreshLbFullBlurUp 平行實作——女優牆與燈箱用同一個
@@ -1061,7 +1069,16 @@ export function stateLightbox() {
             // 無封面例外（125b-T1）：cover_full_url 空 = DB 無封面 → 放行，讓使用者
             // 透過遮罩界面的 🖼 上傳封面（detect-focal 對空 cover_path 回 400「找不到
             // 封面檔案」，前端 toast 但不卡死——見 detect 流程 catch）。
-            if (!this._maskTarget().loaded && this.currentLightboxVideo?.cover_full_url) return;
+            // 兜底（2026-09-15「入口恆可見」契約的執行半邊）：封面「已知壞檔」不得把入口變成死路。
+            //   has_cover === false 是 handleCoverError（state-base.js）在**縮圖層**（cover_url）@error 時降級的既有訊號
+            //   ——0 位元組／404／斷源都走這裡，與 125b-T1 的「DB 無封面」語意等價，故一併放行：
+            //   遮罩以「待上傳」態打開，使用者用 🖼 換封面自救（confirmMask 的 replace 分支在 token
+            //   fail-closed 之前 return，_maskExpectedCoverPath 停在 null 也不擋存檔）。
+            //   仍擋下的只剩「封面存在、且尚未載入完」這個極短暫態——此刻幾何量不到，開起來只會拖錯基準。
+            if (!this._maskTarget().loaded
+                && this.currentLightboxVideo?.cover_full_url
+                && !this._lbFullBroken
+                && this.currentLightboxVideo?.has_cover !== false) return;
 
             // 99a-T3：_maskFocalX 暫時設 null（幾何尚未解出的極短暫態，見 state 宣告處註解）。
             // _computeMaskWinStyle 讀到 null 即貼右裁基準（D2）——99a-T5：此值只作為「detect
@@ -1081,8 +1098,13 @@ export function stateLightbox() {
             // 125b-T2：無封面例外（video 且 cover_full_url 空）→ 跳過 pre-flight 幾何檢查與
             // 焦點偵測，遮罩直接以「待上傳」狀態打開（使用者直奔 🖼 上傳封面；detect-focal
             // 對空 cover_path 恆 400「找不到封面檔案」，偵測在此無意義）。女優恆有圖，不適用。
+            // 兜底（同上「入口恆可見」契約）：已知壞檔的封面與「無封面」同一處理——跳過 detect
+            // （壞檔必 400「找不到封面檔案」）與 pre-flight 幾何（naturalWidth=0 必失敗），
+            // 直接以待上傳態開啟，讓 🖼 換封面這條自救路走得通。
             const isNoCoverVideo = this._maskKind === 'video'
-                && !(this.currentLightboxVideo && this.currentLightboxVideo.cover_full_url);
+                && (!(this.currentLightboxVideo && this.currentLightboxVideo.cover_full_url)
+                    || this.currentLightboxVideo?.has_cover === false
+                    || this._lbFullBroken);
             // 125b-T2 修正：s 必須在 if 塊外宣告（const 是塊級作用域，塊外引用塊內
             // const 恆 ReferenceError——上一版三元寫法未解決作用域，仍會崩）。
             let s = null;

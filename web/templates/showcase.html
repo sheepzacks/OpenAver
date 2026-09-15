@@ -1186,11 +1186,20 @@
                                 </button>
                                 <span x-show="_fetchSamplesLoading" x-text="t('showcase.samples.fetching')"></span>
                                 <!-- 98b-T4：焦點裁切遮罩 toggle（低調圓鈕，styled-like .lb-action-btn 但更小）-->
-                                <!-- 101d-T2：影片焦點 gate 綁 _posterModeActive()（窄/poster 模式才顯示）。與女優
-                                     _focalIconVisible() 的 per-image 門檻刻意不同——根因：影片只在 ≤899px 裁、
+                                <!-- 🔴 入口可見性契約（兜底，勿回退）：影片燈箱開著，這顆就必須看得見。
+                                     gate 只認 `!!currentLightboxVideo?.path`——與下方 .cover-actions 同一判準，
+                                     表達「現在是影片燈箱」。
+                                     絕不可再綁任何「圖片載入狀態」（_lbFullLoaded / cover_full_url / 載入錯誤旗標）：
+                                     封面壞檔（0 位元組、404、斷源）時 .lb-full 的 @load 永不 fire ⇒ _lbFullLoaded
+                                     恆 false ⇒ gate 對該條永久為假。2026-09-15 實例：FPRE-032 封面 0 位元組，
+                                     使用者在燈箱裡完全看不到入口，連「🖼 換封面」這條自救路都拿不到。
+                                     圖片狀態只准影響圖層淡入（state-lightbox.js 的 _lbFullLoaded），
+                                     不得成為任何功能入口的閘門。
+                                     （閘字面由 scripts/static_guard_lint.mjs 的 [TestMaskToggleGuard] 規則鎖住。）
+                                     與女優 _focalIconVisible() 的 per-image 門檻刻意不同——根因：影片只在 ≤899px 裁、
                                      女優牆全寬度都裁（見 plan-101d §2.2）。改任一邊前先讀那張表，別「對齊」成同一套。 -->
                                 <button class="lb-mask-btn"
-                                        x-show="!!currentLightboxVideo?.path && (_lbFullLoaded || !currentLightboxVideo?.cover_full_url) && _posterModeActive()"
+                                        x-show="!!currentLightboxVideo?.path"
                                         @click="openMask()"
                                         :title="t('showcase.lightbox.mask_toggle')"
                                         :aria-label="t('showcase.lightbox.mask_toggle')">
